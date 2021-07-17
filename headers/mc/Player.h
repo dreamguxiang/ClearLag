@@ -1232,6 +1232,11 @@ class Player : public Mob {
         *((void **)&rv) = dlsym("?getSelectedItem@Player@@QEBAAEBVItemStack@@XZ");
         return (this->*rv)();
     }
+    MCINLINE bool isCreative() const {
+        bool (Player:: * rv)() const;
+        *((void**)&rv) = dlsym("?isCreative@Player@@UEBA_NXZ");
+        return (this->*rv)();
+    }
 #if 0
 	MCINLINE  class std::vector<class ItemStack const *,class std::allocator<class ItemStack const *> >  getAllEquipment()const {
  class std::vector<class ItemStack const *,class std::allocator<class ItemStack const *> > (Player::*rv)()const ; *((void**)&rv) = dlsym("?getAllEquipment@Player@@UEBA?AV?$vector@PEBVItemStack@@V?$allocator@PEBVItemStack@@@std@@@std@@XZ"); return (this->*rv)();}

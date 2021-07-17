@@ -89,6 +89,7 @@ void loadconfig() {
 
 unordered_map<string, set<Actor*>> actors;
 SRWLOCK lock;
+
 THook(void, "?updateTickingData@Actor@@QEAAXXZ",
 	Actor* a1){
 	if(MakeSP(a1))
@@ -111,41 +112,32 @@ namespace bc {
 }
 
 hash_set<void*> acc;
-void acccc() {
-	for (auto& v : config["ClearList"].GetArray()) {
-			string bstr = "??_7" + (string)v.GetString() + "@@6B@";
-			auto typeee = dlsym_real(bstr.c_str());
-			acc.insert(typeee);
-	}
-	auto type1= dlsym_real("??_7Actor@@6B@");
-	acc.insert(type1);
-	auto type2 = dlsym_real("??_7Mob@@6B@");
-	acc.insert(type2);
-	auto type3 = dlsym_real("??_7Animal@@6B@");
-	acc.insert(type3);
-	auto type4 = dlsym_real("??_7Monster@@6B@");
-	acc.insert(type4);
-	auto type5 = dlsym_real("??_7ItemActor@@6B@");
-	acc.insert(type5);
-}
-inline static Actor* MakeAC(void* x) {
-	if (!x)
-		return nullptr;
-	//cout << dAccess<void*, 0>(x) << endl;
-	if (dAccess<void*, 0>(x) != x) {
-		return (Actor*)x;
+
+Actor* id2ac(ActorUniqueID id) {
+	if (id) {
+		return SymCall("?fetchEntity@Level@@UEBAPEAVActor@@UActorUniqueID@@_N@Z"
+			, Actor*, Level*, ActorUniqueID, bool)(LocateService<Level>(), id, 0);
 	}
 	return nullptr;
 }
-void remove(Actor* a1) {
-	auto type1 = dlsym_real("??_7Pig@@6B@");
-	auto acbool = SymCall("?isRemoved@Actor@@QEBA_NXZ", __int64, Actor*)(a1);
-	cout <<u8"原始指针："<< a1 << u8" 偏移后指针：" << dAccess<void*, 0>(a1) << u8" PIG统一指针："<<type1 <<u8" isremove："<< acbool <<endl;
-	if (dAccess<void*, 0>(a1) != a1) { 
-		SymCall("?remove@Actor@@UEAAXXZ", void, Actor*)(a1);
-		cout << u8"执行成功" << endl;
+bool remove(Actor* a1) {
+	ActorUniqueID id;
+	void* isValid;
+	__try
+	{
+		id = a1->getUniqueID();
 	}
-	++nums;
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return false;
+	}
+	auto acc = id2ac(id);
+	if (acc != nullptr){
+		SymCall("?kill@Actor@@UEAAXXZ", void, Actor*)(acc);
+		nums++;
+		return true;
+	}
+	return false;
 }
 
 #include <api/scheduler/scheduler.h>
@@ -171,9 +163,10 @@ void schTask() {
 			AcquireSRWLockShared(&lock);
 			for (auto actor : actors[v.GetString()])
 			{
-				//cout << actor << endl;
-				remove(actor);
-				num++;
+				auto bo = remove(actor);
+				if (bo) {
+					num++;
+				}
 			}
 			ReleaseSRWLockShared(&lock);
 			long ends = getTimeStamp();
@@ -181,12 +174,14 @@ void schTask() {
 		}
 		long end = getTimeStamp();
 		bc::bctext(u8"§6[§eClearLag§6]§r 清理成功！共计清除 " + to_string(nums) + u8"个生物 总耗时：" + to_string(end - start) + u8"ms\n详细如下", RAW);
-		cout << u8"§6[§eClearLag§6]§r 清理成功！共计清除 " << to_string(nums) << u8"个生物 总耗时：" << to_string(end - start) << u8"ms\n详细如下" << endl;
+		//cout << u8"§6[§eClearLag§6]§r 清理成功！共计清除 " << to_string(nums) << u8"个生物 总耗时：" << to_string(end - start) << u8"ms\n详细如下" << endl;
 		map<string, int>::reverse_iterator iter; 
 		for (iter = tick.rbegin(); iter != tick.rend(); iter++) {
-
+			if (iter->second == 0){
+				continue;
+			}
 			bc::bctext(u8"类型：" + iter->first +u8" 共计："+ to_string(iter->second), RAW);
-			cout << u8"类型：" << iter->first << u8" 共计："  << to_string(iter->second) << endl;
+			//cout << u8"类型：" << iter->first << u8" 共计："  << to_string(iter->second) << endl;
 		}
 		map<string, int >().swap(tick);
 		map<string, int >().clear();
@@ -205,7 +200,6 @@ void entry() {
 	loadconfig();
 	Event::addEventListener([](ServerStartedEV ev) {
 		InitializeSRWLock(&lock);
-		//acccc();
 		timer();
 	});
 }
