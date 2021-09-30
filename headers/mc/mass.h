@@ -128,15 +128,15 @@ class ServerNetworkHandler {
     }
 };
 class Minecraft {
-  public:
-    MCINLINE class Level *getLevel() {
-        class Level *(Minecraft::*rv)();
-        *((void **)&rv) = dlsym("?getLevel@Minecraft@@QEBAPEAVLevel@@XZ");
+public:
+    MCINLINE class Level* getLevel() {
+        class Level* (Minecraft:: * rv)();
+        *((void**)&rv) = dlsym("?getLevel@Minecraft@@QEBAPEAVLevel@@XZ");
         return (this->*rv)();
     }
-    MCINLINE class ServerNetworkHandler *getServerNetworkHandler() {
-        class ServerNetworkHandler *(Minecraft::*rv)();
-        *((void **)&rv) =
+    MCINLINE class ServerNetworkHandler* getServerNetworkHandler() {
+        class ServerNetworkHandler* (Minecraft:: * rv)();
+        *((void**)&rv) =
             dlsym("?getServerNetworkHandler@Minecraft@@QEAAPEAVServerNetworkHandler@@XZ");
         return (this->*rv)();
     }

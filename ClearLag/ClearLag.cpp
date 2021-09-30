@@ -9,18 +9,17 @@
 #include <mc/Player.h>
 #include <stl\varint.h>
 #include <api/xuidreg/xuidreg.h>
-#include <api/types/helper.h>
 #include <mc/Item.h>
 #include <random>
 #include <windows.h>
 #include "log.h"
 #include <api/scheduler/scheduler.h>
-#include <api/commands.h>
 #include <api/myPacket.h>
 #include <map>
 #include <set>
 #include"hash_Set.h"
 #include "hash_set.cpp"
+
 std::time_t getTimeStamp()
 {
 	std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> tp = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
@@ -87,20 +86,8 @@ void loadconfig() {
 		cout << "[" << gettime() << u8" Error] No Member Found!!!" << endl;
 }
 
-unordered_map<string, set<Actor*>> actors;
 SRWLOCK lock;
 
-THook(void, "?updateTickingData@Actor@@QEAAXXZ",
-	Actor* a1){
-	if(MakeSP(a1))
-		return original(a1);
-	auto name = SymCall("?getActorName@CommandUtils@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBVActor@@@Z", string, Actor*)(a1);
-	//cout << name <<endl;
-	AcquireSRWLockExclusive(&lock);
-	actors[name].insert(a1);
-	ReleaseSRWLockExclusive(&lock);
-	return original(a1);
-}
 int nums = 0;
 namespace bc {
 	void bctext(string a1, TextType a2) {
@@ -120,6 +107,63 @@ Actor* id2ac(ActorUniqueID id) {
 	}
 	return nullptr;
 }
+
+
+
+#include <mc/OffsetHelper.h>
+Tick* Raw_GetEntityLastTick(Actor* ac)
+{
+	auto bs = offPlayer::getBlockSource(ac);
+	auto bpos = ((Vec3)ac->getPos()).toBlockPos();
+	void* lc = SymCall("?getChunkAt@BlockSource@@QEBAPEAVLevelChunk@@AEBVBlockPos@@@Z",
+		void*, BlockSource*, BlockPos*)(bs, &bpos);
+	return SymCall("?getLastTick@LevelChunk@@QEBAAEBUTick@@XZ"
+		, Tick*, void*)(lc);
+}
+
+Dimension* Raw_GetDimByLevel(Level* lv, int id) {
+	return SymCall("?getDimension@Level@@UEBAPEAVDimension@@V?$AutomaticID@VDimension@@H@@@Z",
+		Dimension*, void*, int)(lv, id);
+}
+
+std::vector<Actor*> GetAllEntities(int dimid)
+{
+	auto lv = LocateService<Minecraft>()->getLevel();
+	std::vector<Actor*> entityList;
+	auto dim = Raw_GetDimByLevel(lv, dimid);
+	if (!dim)
+		return entityList;
+	auto& list = *(std::unordered_map<long, void*>*)((uintptr_t)dim + 304);     //Dimension::getEntityIdMap
+
+	//Check Valid
+	auto currTick = SymCall("?getCurrentTick@Level@@UEBAAEBUTick@@XZ"
+		, Tick*, Level*)(lv)->t;
+	for (auto& i : list)
+	{
+		auto entity = SymCall("??$tryUnwrap@VActor@@$$V@WeakEntityRef@@QEBAPEAVActor@@XZ",
+			Actor*, void*)(&i.second);
+		if (!entity)
+			continue;
+		auto lastTick = Raw_GetEntityLastTick(entity)->t;
+		if (currTick - lastTick == 0 || currTick - lastTick == 1)
+			entityList.push_back(entity);
+	}
+	return entityList;
+}
+
+std::vector<Actor*> getAllEntities()
+{
+	auto lv = (uintptr_t)LocateService<Minecraft>()->getLevel();
+	std::vector<Actor*> entityList;
+	auto dim0 = GetAllEntities(0);
+	auto dim1 = GetAllEntities(1);
+	auto dim2 = GetAllEntities(2);
+	entityList.insert(entityList.end(), dim0.begin(), dim0.end());
+	entityList.insert(entityList.end(), dim1.begin(), dim1.end());
+	entityList.insert(entityList.end(), dim2.begin(), dim2.end());
+	return entityList;
+}
+
 bool remove(Actor* a1) {
 	ActorUniqueID id;
 	void* isValid;
@@ -132,8 +176,8 @@ bool remove(Actor* a1) {
 		return false;
 	}
 	auto acc = id2ac(id);
-	if (acc != nullptr){
-		SymCall("?kill@Actor@@UEAAXXZ", void, Actor*)(acc);
+	if (acc != nullptr) {
+		SymCall("?remove@Actor@@UEAAXXZ", void, Actor*)(acc);
 		nums++;
 		return true;
 	}
@@ -160,33 +204,34 @@ void schTask() {
 		for (auto& v : config["ClearList"].GetArray()) {
 			long starts = getTimeStamp();
 			int num = 0;
-			AcquireSRWLockShared(&lock);
-			for (auto actor : actors[v.GetString()])
+			auto list = getAllEntities();
+			for (auto actor : list)
 			{
-				auto bo = remove(actor);
-				if (bo) {
-					num++;
+				auto name = SymCall("?getActorName@CommandUtils@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBVActor@@@Z", string, Actor*)(actor); {
+					if (name == v.GetString()) {
+						auto bo = remove(actor);
+						if (bo) {
+							num++;
+						}
+					}
 				}
 			}
-			ReleaseSRWLockShared(&lock);
 			long ends = getTimeStamp();
 			tick.insert(std::map < string, int > ::value_type(v.GetString(), num));
 		}
 		long end = getTimeStamp();
 		bc::bctext(u8"§6[§eClearLag§6]§r 清理成功！共计清除 " + to_string(nums) + u8"个生物 总耗时：" + to_string(end - start) + u8"ms\n详细如下", RAW);
 		//cout << u8"§6[§eClearLag§6]§r 清理成功！共计清除 " << to_string(nums) << u8"个生物 总耗时：" << to_string(end - start) << u8"ms\n详细如下" << endl;
-		map<string, int>::reverse_iterator iter; 
+		map<string, int>::reverse_iterator iter;
 		for (iter = tick.rbegin(); iter != tick.rend(); iter++) {
-			if (iter->second == 0){
+			if (iter->second == 0) {
 				continue;
 			}
-			bc::bctext(u8"类型：" + iter->first +u8" 共计："+ to_string(iter->second), RAW);
+			bc::bctext(u8"类型：" + iter->first + u8" 共计：" + to_string(iter->second), RAW);
 			//cout << u8"类型：" << iter->first << u8" 共计："  << to_string(iter->second) << endl;
 		}
 		map<string, int >().swap(tick);
 		map<string, int >().clear();
-		unordered_map<string, set<Actor*>>().swap(actors);
-		unordered_map<string, set<Actor*>>().clear();
 		nums = 0;
 		});
 	t.detach();
@@ -194,12 +239,12 @@ void schTask() {
 void timer() {
 	Handler::schedule(RepeatingTask([] {
 		schTask();
-		}, config["timer"].GetInt()*2));
+		}, config["timer"].GetInt() * 2));
 }
 void entry() {
 	loadconfig();
 	Event::addEventListener([](ServerStartedEV ev) {
 		InitializeSRWLock(&lock);
 		timer();
-	});
+		});
 }
